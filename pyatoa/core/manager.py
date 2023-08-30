@@ -27,6 +27,7 @@ from pyatoa.scripts.load_example_data import load_example_data
 from pyatoa.visuals.wave_maker import WaveMaker
 from pyatoa.visuals.map_maker import MapMaker
 
+from pyflex.window import Window as pfwin # Import window class. 
 
 class ManagerError(Exception):
     """
@@ -909,16 +910,65 @@ class Manager:
                 continue
 
         # Find misfit windows, from a dataset or through window selection
-        if fix_windows:
-            self.retrieve_windows(iteration, step_count, return_previous)
-        else:
-            self.select_windows_plus()
+        manual_windows = True # TODO make this an option in seisflows par file. 
+        if manual_windows: 
+            self.retrieve_windows_manual() # Load manually defined windows. 
+        elif fix_windows:
+            self.retrieve_windows(iteration, step_count, return_previous) # Load windows from a previous iteration
+        else: 
+            self.select_windows_plus() # Make windows based on current waveforms. 
 
         if save:
             self.save_windows()
         logger.info(f"{self.stats.nwin} window(s) total found")
 
         return self
+
+    def retrieve_windows_manual(self):
+        """
+        brb2023/08/30 Make window objects based on externally defined file. 
+        """
+
+        logger.info(f"retrieving manually generated windows from dataset")
+        net, sta, _, _ = self.st_obs[0].get_id().split(".")
+
+        # Make arbitrary trial set of windows. 
+        logger.debug('Making nonsense windows. ') # TODO remove once actually loading external window
+
+        for icomp, component in enumerate(self.config.component_list): 
+            # w_examp = windows[component][0] # Taken an example window object made from seisflows. 
+            windows = {component:[]}
+            wlist = [] # Start a new list of windows. 
+
+            ### TODO for this station+source+component, load all windows start and end times. 
+            for i in range(1,5): 
+
+                # Define indicies of interest. 
+                left = i * 3000 # TODO get start and end indicies from loaded file. 
+                right = i*3000 + 2000 # TODO get start and end indicies from loaded file. 
+                center = int( (left + right)/2 )
+
+                # Determine other parameters for the window object. For now, take from the example window object. 
+                time_of_first_sample = self.st_syn[0].stats.starttime # Is there a difference between syn and obs start times? : I checked 2023/08/30 and the windows loaded from load_windows have the exact same start time as w_exampl.time_of_first_sample. I think that synthetic and observed waveforms have been standardize, so will have the same start times. 
+                dt = 1/self.st_syn[0].stats.sampling_rate 
+                min_period = self.config.min_period 
+                channel_id = self.st_syn[0].id # While writing this, I see 'AA.S154875..__P'. The two dots are also present in the channel ID after loading windows from the h5 dataset. 
+
+                win1 = pfwin(left, right, center, time_of_first_sample, dt, min_period, channel_id) # Make window object directly from the class. 
+
+                # Set window results, to prevent error with formatting None types. 
+                max_cc_value = 1 
+                cc_shift = 0 
+                dlnA = 0 
+                win1.max_cc_value = max_cc_value
+                win1.cc_shift = cc_shift
+                win1.dlnA = dlnA
+
+                wlist.append(win1)
+
+            windows[component] = wlist
+
+        self.calc_vals_for_old_window(windows)
 
     def retrieve_windows(self, iteration, step_count, return_previous):
         """
@@ -945,6 +995,14 @@ class Manager:
                                return_previous=return_previous
                                )
 
+        self.calc_vals_for_old_window(windows)
+
+    def calc_vals_for_old_window(self, windows): 
+        """
+        If windows can be loaded but haven't had cross-correlations and other parameters
+        calculated yet. This function will use the time windows, and assign new
+        cc, dt, and dlnA values. 
+        """
         # Recalculate window criteria for new values for cc, tshift, dlnA etc...
         logger.debug("recalculating window criteria")
         for comp, windows_ in windows.items():
@@ -1188,7 +1246,7 @@ class Manager:
                 # Prepare Pyflex window indices to give to Pyadjoint
                 for win in window:
                     # Window units given in seconds
-                    adj_win = [win.left * dt, win.right * dt]
+                    adj_win = [win.left * dt, win.right * dt] 
                     adjoint_windows[comp].append(adj_win)
         # If no windows given, calculate adjoint source on whole trace
         else:
