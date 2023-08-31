@@ -845,7 +845,9 @@ class Manager:
         return self
 
     def window(self, fix_windows=False, iteration=None, step_count=None,
-               force=False, save=True):
+               force=False, save=True, 
+               manual_windows = None
+               ):
         """
         Evaluate misfit windows using Pyflex. Save windows to ASDFDataSet.
         Allows previously defined windows to be retrieved from ASDFDataSet.
@@ -871,6 +873,22 @@ class Manager:
             external preprocessing is used that doesn't meet flag criteria
         :type save: bool
         :param save: save the gathered windows to an ASDF Dataset
+        :type manual_windows: dict
+        param manual_windows: a dictionary containing information on the 
+        window times you want to manually specify in seconds. 
+        Here is an example of the format as of 2023/08/31: 
+        {"000099": 
+            {"100000": 
+                [[2, 4], [6, 8], [10, 12]], 
+            "100001": 
+                [[2, 4], [6, 8], [10, 12]]}, 
+        "001099": 
+            {"100000": 
+                [[2, 4], [6, 8], [10, 12]], 
+            "100001": 
+                [[2, 4], [6, 8], [10, 12]]
+            }
+        }
         """
         # Pre-check to see if data has already been standardized
         self.check()
@@ -910,9 +928,13 @@ class Manager:
                 continue
 
         # Find misfit windows, from a dataset or through window selection
-        manual_windows = True # TODO make this an option in seisflows par file. 
-        if manual_windows: 
-            self.retrieve_windows_manual() # Load manually defined windows. 
+        # manual_windows = True # TODO make this an option in seisflows par file. 
+        if manual_windows is not None: 
+            # import json
+            # with open('/Volumes/bbrunsvik/CasVel2D/adjoint_brb2/inversions/simple_mod1/starting_point/DATA/window_dictionary.json') as file:
+            #     windows_json = json.load(file) 
+            # self.manual_windows = manual_windows # Store to object just in case. 
+            self.retrieve_windows_manual(manual_windows) # Load manually defined windows. 
         elif fix_windows:
             self.retrieve_windows(iteration, step_count, return_previous) # Load windows from a previous iteration
         else: 
@@ -924,7 +946,7 @@ class Manager:
 
         return self
 
-    def retrieve_windows_manual(self):
+    def retrieve_windows_manual(self, windows_json):
         """
         brb2023/08/30 Make window objects based on externally defined file. 
         """
@@ -936,23 +958,30 @@ class Manager:
         logger.debug('Making nonsense windows. ') # TODO remove once actually loading external window
 
         for icomp, component in enumerate(self.config.component_list): 
-            # w_examp = windows[component][0] # Taken an example window object made from seisflows. 
+
+            # Determine parameters for the window object. 
+            time_of_first_sample = self.st_syn[0].stats.starttime # Is there a difference between syn and obs start times? : I checked 2023/08/30 and the windows loaded from load_windows have the exact same start time as w_exampl.time_of_first_sample. I think that synthetic and observed waveforms have been standardize, so will have the same start times. 
+            dt = 1/self.st_syn[0].stats.sampling_rate 
+            min_period = self.config.min_period 
+            channel_id = self.st_syn[0].id # While writing this, I see 'AA.S154875..__P'. The two dots are also present in the channel ID after loading windows from the h5 dataset. 
+
+            # Start window dictionary to be used by seisflows.  
             windows = {component:[]}
             wlist = [] # Start a new list of windows. 
 
-            ### TODO for this station+source+component, load all windows start and end times. 
-            for i in range(1,5): 
+            # Load and extract window information from json file. To be converted to window format of seisflows/pyatoa. 
+            source_code = '000099' # TODO temporary. Replace with: self.config.event_id -> '000099'
+            receiver_code = '100000' # TODO temporary. Replace with: f'{net}.{sta}.{component}' -> 'AA.S154875.P'
+            window_ls_json = windows_json[source_code][receiver_code] # Access this set of windows. 
+
+            for i in range(len(window_ls_json)): # Loop over windows from json file and put them into the seisflows window. 
+
 
                 # Define indicies of interest. 
-                left = i * 3000 # TODO get start and end indicies from loaded file. 
-                right = i*3000 + 2000 # TODO get start and end indicies from loaded file. 
+                left = int(np.floor(window_ls_json[i][0] / dt))  #i * 3000 # TODO get start and end indicies from loaded file. 
+                right = int(np.ceil(window_ls_json[i][1] / dt))  #i*3000 + 2000 # TODO get start and end indicies from loaded file. 
                 center = int( (left + right)/2 )
 
-                # Determine other parameters for the window object. For now, take from the example window object. 
-                time_of_first_sample = self.st_syn[0].stats.starttime # Is there a difference between syn and obs start times? : I checked 2023/08/30 and the windows loaded from load_windows have the exact same start time as w_exampl.time_of_first_sample. I think that synthetic and observed waveforms have been standardize, so will have the same start times. 
-                dt = 1/self.st_syn[0].stats.sampling_rate 
-                min_period = self.config.min_period 
-                channel_id = self.st_syn[0].id # While writing this, I see 'AA.S154875..__P'. The two dots are also present in the channel ID after loading windows from the h5 dataset. 
 
                 win1 = pfwin(left, right, center, time_of_first_sample, dt, min_period, channel_id) # Make window object directly from the class. 
 
