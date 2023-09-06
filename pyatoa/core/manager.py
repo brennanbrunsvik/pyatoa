@@ -957,6 +957,9 @@ class Manager:
         # Make arbitrary trial set of windows. 
         logger.debug('Making nonsense windows. ') # TODO remove once actually loading external window
 
+        # Get some stats about the waveforms to make sure windows don't go outside waveform
+        trace = self.st_obs[0]
+
         for icomp, component in enumerate(self.config.component_list): 
 
             # Determine parameters for the window object. 
@@ -970,17 +973,36 @@ class Manager:
             wlist = [] # Start a new list of windows. 
 
             # Load and extract window information from json file. To be converted to window format of seisflows/pyatoa. 
-            source_code = '000099' # TODO temporary. Replace with: self.config.event_id -> '000099'
-            receiver_code = '100000' # TODO temporary. Replace with: f'{net}.{sta}.{component}' -> 'AA.S154875.P'
+            source_code = self.config.event_id 
+            receiver_code = f'{net}.{sta}.{component}' 
             window_ls_json = windows_json[source_code][receiver_code] # Access this set of windows. 
 
             for i in range(len(window_ls_json)): # Loop over windows from json file and put them into the seisflows window. 
 
 
                 # Define indicies of interest. 
-                left = int(np.floor(window_ls_json[i][0] / dt))  #i * 3000 # TODO get start and end indicies from loaded file. 
-                right = int(np.ceil(window_ls_json[i][1] / dt))  #i*3000 + 2000 # TODO get start and end indicies from loaded file. 
+                tshift_correction = - self.stats.time_offset_sec # Account for time before 0 added by seisflows/specfem
+                tleft = window_ls_json[i][0] + tshift_correction
+                tright = window_ls_json[i][1] + tshift_correction
+                left = int(np.floor(tleft / dt))  
+                right = int(np.ceil(tright / dt)) 
                 center = int( (left + right)/2 )
+
+                # Verify the window is not after or before the traces. 
+                if center > trace.stats.npts - 1: # If middle of the desired window is after the whole trace, skip the window. 
+                    logger.debug('Center of original window was after end of trace. Skipping this window. ')
+                    continue
+                if center < 0: # If window is in negative time... that shouldn't happen but check anyway. 
+                    logger.debug('Center of original window was in negative time. Skipping this window. ')
+                    continue
+                if left < 0: 
+                    logger.debug('Window went into negative time. Capping at first sample. ')
+                    left = 0
+                if right > ( trace.stats.npts - 1 ): # Don't use last sample, in case there is a sample length difference between a trace. 
+                    # Cap the right sample but leave the left alone. If the left also extends beyond the trace, then the window will be rejected. 
+                    logger.debug('Window extended beyond the traces. Capping window to the second to last sample of trace. ')
+                    right = trace.stats.npts - 1
+                center = int( (left + right)/2 ) # Recalculate center of the window. 
 
 
                 win1 = pfwin(left, right, center, time_of_first_sample, dt, min_period, channel_id) # Make window object directly from the class. 
