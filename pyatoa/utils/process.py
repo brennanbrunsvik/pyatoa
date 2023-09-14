@@ -11,7 +11,7 @@ from pyatoa import logger
 def default_process(st, choice, inv=None, baz=None, min_period=None,
                     max_period=None, unit_output=None, half_dur=None,
                     rotate_to_rtz=False, apply_filter=True,
-                    remove_response=True, convolve_with_stf=True, **kwargs):
+                    remove_response=False, convolve_with_stf=True, **kwargs):
     """
     Generalized, default preprocessing function to process waveform data.
     Preprocessing is slightly different for obs and syn waveforms. Each

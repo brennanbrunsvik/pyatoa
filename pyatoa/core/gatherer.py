@@ -163,7 +163,10 @@ class Gatherer:
                                                      syn_cfgpath="waveforms",
                                                      **kwargs)
             else:
-                st_obs = self.fetch_observed_by_dir(code, **kwargs)
+                st_obs = self.fetch_observed_by_dir(code,         
+                        obs_dir_template=f"{self.config.event_id}",
+                        obs_fid_template="{net}.{sta}.*.sac", #brb2023/09/14 Should provide this info somewhere else 
+                        **kwargs) 
         # Abort if none of the three attempts returned successfully
         if st_obs:
             logger.info(f"matching observed waveforms found: {code}")
@@ -458,6 +461,7 @@ class Gatherer:
         :rtype stream: obspy.core.stream.Stream or None
         :return stream: stream object containing relevant waveforms, else None
         """
+
         if self.origintime is None:
             raise AttributeError("`origintime` must be specified")
 
@@ -489,11 +493,17 @@ class Gatherer:
                 logger.debug(f"searching for observations: {fid}")
                 for filepath in glob.glob(fid):
                     st += read(filepath)
+                    # st += read_sem(filepath, self.origintime) # TODO temporary, for loading an example waveform. 
                     logger.info(f"retrieved observations locally: {filepath}")
             break
         # Take care of gaps in data by converting to masked data
         if len(st) > 0:
             st.merge()
+
+        # Check sample rate and start time. 
+        for itr, tr in enumerate(st): 
+            tr.stats.network = net 
+            tr.stats.station = sta # Get sta from file name. I was getting truncated station names in the stats dictionary. brb2023/09/14
 
         # If empty stream either due to no data or trimming removes all data,
         # we will return None
